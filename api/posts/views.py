@@ -6,6 +6,7 @@ from api.posts.documents import Post
 from rest_framework.pagination import PageNumberPagination
 from bson import ObjectId
 from django.core.exceptions import ValidationError
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 
 class PostPagination(PageNumberPagination):
@@ -60,6 +61,10 @@ class PostAPIView(PostPermissons, APIView):
                 'msg': '유효하지 않은 데이터입니다.',
                 'errors': e.message_dict
             }, status=status.HTTP_400_BAD_REQUEST)
+        except (InvalidToken, TokenError):
+            return Response({
+                'msg': '유효하지 않은 토큰입니다.'
+            }, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
             return Response({
                 'msg': '서버 오류가 발생했습니다.',
@@ -169,6 +174,10 @@ class PostDetailAPIView(PostPermissons, APIView):
                 'msg': '유효하지 않은 데이터입니다.',
                 'errors': e.message_dict
             }, status=status.HTTP_400_BAD_REQUEST)
+        except (InvalidToken, TokenError):
+            return Response({
+                'msg': '유효하지 않은 토큰입니다.'
+            }, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
             return Response({
                 'msg': '서버 오류가 발생했습니다.',
@@ -189,6 +198,10 @@ class PostDetailAPIView(PostPermissons, APIView):
                 'msg': '유효하지 않은 데이터입니다.',
                 'errors': e.message_dict
             }, status=status.HTTP_400_BAD_REQUEST)
+        except (InvalidToken, TokenError):
+            return Response({
+                'msg': '유효하지 않은 토큰입니다.'
+            }, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
             return Response({
                 'msg': '서버 오류가 발생했습니다.',
