@@ -5,6 +5,7 @@ from rest_framework import status
 from api.posts.documents import Post
 from rest_framework.pagination import PageNumberPagination
 from bson import ObjectId
+from django.core.exceptions import ValidationError
 
 
 class PostPagination(PageNumberPagination):
@@ -15,10 +16,10 @@ class PostPagination(PageNumberPagination):
 
 class PostPermissons():
     def get_permissions(self):
-        if self.request.method == 'GET':
-            self.permission_classes = [AllowAny]
-        else:
+        if self.request.method in ['POST', 'PUT', 'DELETE']:
             self.permission_classes = [IsAuthenticated]
+        else:
+            self.permission_classes = [AllowAny]
         return super().get_permissions()
 
 
@@ -27,94 +28,169 @@ class PostAPIView(PostPermissons, APIView):
     게시글 API
     """
     def post(self, request):
-        data = request.data
-        title = data.get('title')
-        content = data.get('content')
-        author_id = request.user.id
+        try:
+            data = request.data
+            title = data.get('title')
+            content = data.get('content')
+            author_id = request.user.id
 
-        post = Post(
-            title=title,
-            content=content,
-            author_id=author_id
-        )
+            if not title or not content:
+                return Response({
+                    'msg': '제목과 내용을 모두 입력해주세요.'
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        post.save()
+            post = Post(
+                title=title,
+                content=content,
+                author_id=author_id
+            )
 
-        return Response({
-            'id': str(post.id),
-            'title': post.title,
-            'content': post.content,
-            'author_id': post.author_id,
-            'created_at': post.created_at
-        }, status=status.HTTP_201_CREATED)
+            post.save()
+
+            return Response({
+                'id': str(post.id),
+                'title': post.title,
+                'content': post.content,
+                'author_id': post.author_id,
+                'created_at': post.created_at
+            }, status=status.HTTP_201_CREATED)
+
+        except ValidationError as e:
+            return Response({
+                'msg': '유효하지 않은 데이터입니다.',
+                'errors': e.message_dict
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'msg': '서버 오류가 발생했습니다.',
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def get(self, request):
-        paginator = PostPagination()
-        author_params = request.query_params.get('author_id')
+        try:
+            paginator = PostPagination()
+            author_params = request.query_params.get('author_id')
 
-        if author_params:
-            posts = Post.objects(author_id=author_params)
-        else:
-            posts = Post.objects()
+            if author_params:
+                posts = Post.objects(author_id=author_params)
+            else:
+                posts = Post.objects()
 
-        result_page = paginator.paginate_queryset(posts, request, view=self)
-        if result_page is not None:
-            data = [
+            result_page = paginator.paginate_queryset(posts,
+                                                      request,
+                                                      view=self)
+            if result_page is not None:
+                data = [
+                    {
+                        'id': str(post.id),
+                        'title': post.title,
+                        'content': post.content,
+                        'author_id': str(post.author_id),
+                        'created_at': post.created_at
+                    } for post in result_page
+                ]
+                return paginator.get_paginated_response(data)
+
+            return Response([
                 {
                     'id': str(post.id),
                     'title': post.title,
                     'content': post.content,
                     'author_id': str(post.author_id),
                     'created_at': post.created_at
-                } for post in result_page
-            ]
-            return paginator.get_paginated_response(data)
+                } for post in posts
+            ], status=status.HTTP_200_OK)
 
-        return Response([
-            {
-                'id': str(post.id),
-                'title': post.title,
-                'content': post.content,
-                'author_id': str(post.author_id),
-                'created_at': post.created_at
-            } for post in posts
-        ])
+        except ValidationError as e:
+            return Response({
+                'msg': '유효하지 않은 데이터입니다.',
+                'errors': e.message_dict
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'msg': '서버 오류가 발생했습니다.',
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class PostDetailAPIView(PostPermissons, APIView):
     """
     게시글 상세 조회, 수정, 삭제 API
     """
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, post_id):
-        post = Post.objects.get(
-            id=ObjectId(post_id)
-        )
-        return Response({
-            'id': str(post.id),
-            'title': post.title,
-            'content': post.content,
-            'author_id': post.author_id,
-            'created_at': post.created_at
-        })
+        try:
+            post = Post.objects.get(id=ObjectId(post_id))
+            return Response({
+                'id': str(post.id),
+                'title': post.title,
+                'content': post.content,
+                'author_id': post.author_id,
+                'created_at': post.created_at
+            }, status=status.HTTP_200_OK)
+        except Post.DoesNotExist:
+            return Response({
+                'msg': '존재하지 않는 게시글입니다.'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except ValidationError as e:
+            return Response({
+                'msg': '유효하지 않은 데이터입니다.',
+                'errors': e.message_dict
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'msg': '서버 오류가 발생했습니다.',
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def put(self, request, post_id):
-        post = Post.objects.get(id=ObjectId(post_id))
-        data = request.data
+        try:
+            post = Post.objects.get(id=ObjectId(post_id))
+            data = request.data
 
-        post.title = data.get('title')
-        post.content = data.get('content')
-        post.save()
+            post.title = data.get('title', post.title)
+            post.content = data.get('content', post.content)
+            post.save()
 
-        return Response({
-            'id': str(post.id),
-            'title': post.title,
-            'content': post.content,
-            'author_id': post.author_id,
-            'created_at': post.created_at
-        })
+            return Response({
+                'id': str(post.id),
+                'title': post.title,
+                'content': post.content,
+                'author_id': post.author_id,
+                'created_at': post.created_at
+            }, status=status.HTTP_200_OK)
+        except Post.DoesNotExist:
+            return Response({
+                'msg': '존재하지 않는 게시글입니다.'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except ValidationError as e:
+            return Response({
+                'msg': '유효하지 않은 데이터입니다.',
+                'errors': e.message_dict
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'msg': '서버 오류가 발생했습니다.',
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def delete(self, request, post_id):
-        post = Post.objects.get(id=ObjectId(post_id))
-        post.delete()
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            post = Post.objects.get(id=ObjectId(post_id))
+            post.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Post.DoesNotExist:
+            return Response({
+                'msg': '존재하지 않는 게시글입니다.'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except ValidationError as e:
+            return Response({
+                'msg': '유효하지 않은 데이터입니다.',
+                'errors': e.message_dict
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'msg': '서버 오류가 발생했습니다.',
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
